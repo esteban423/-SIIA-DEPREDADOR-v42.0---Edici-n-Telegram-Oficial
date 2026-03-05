@@ -10,7 +10,7 @@ from threading import Thread
 # --- 1. CONFIGURACIÓN, CREDENCIALES Y SEGURIDAD ---
 TOKEN = "8753793977:AAFWryLt1fVxGgJrW1JpDz40NiryFY9N9rs"
 CHAT_ID_AUTORIZADO = 8631491166  # Solo vos podés usar el bot
-CLAVE_WEB = "TU_CONTRASEÑA_AQUI" # CAMBIÁ ESTO POR TU CLAVE PARA STREAMLIT
+CLAVE_WEB = "35875e" # CAMBIÁ ESTO POR TU CLAVE PARA STREAMLIT
 bot = telebot.TeleBot(TOKEN)
 
 RATIOS = {
@@ -120,3 +120,4 @@ if check_password():
         status.text("✅ Proceso completado.")
         df = pd.DataFrame(resultados).sort_values("Retorno %", ascending=False)
         st.dataframe(df, use_container_width=True)
+
