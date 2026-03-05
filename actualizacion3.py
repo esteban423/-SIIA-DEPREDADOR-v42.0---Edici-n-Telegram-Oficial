@@ -7,9 +7,10 @@ import schedule
 import time
 from threading import Thread
 
-# --- 1. CONFIGURACIÓN Y CREDENCIALES ---
+# --- 1. CONFIGURACIÓN, CREDENCIALES Y SEGURIDAD ---
 TOKEN = "8753793977:AAFWryLt1fVxGgJrW1JpDz40NiryFY9N9rs"
-CHAT_ID = "8631491166"
+CHAT_ID_AUTORIZADO = 8631491166  # Solo vos podés usar el bot
+CLAVE_WEB = "TU_CONTRASEÑA_AQUI" # CAMBIÁ ESTO POR TU CLAVE PARA STREAMLIT
 bot = telebot.TeleBot(TOKEN)
 
 RATIOS = {
@@ -25,10 +26,11 @@ RATIOS = {
 COSTO_IOL = 0.005605 
 CCL_REF = 1469
 
-# --- 2. MOTOR DE BÚSQUEDA DEL PUNTO PERFECTO ---
+# --- 2. MOTOR DE OPTIMIZACIÓN EXHAUSTIVA ---
 def buscar_punto_perfecto(ticker):
     try:
         data = yf.download(ticker, period="2y", interval="1wk", progress=False)
+        if data.empty: return None
         df_p = data['Close'].iloc[:, 0] if isinstance(data['Close'], pd.DataFrame) else data['Close']
         mejor_ma, mejor_retorno, mejor_bt = 0, -999, None
         
@@ -44,90 +46,77 @@ def buscar_punto_perfecto(ticker):
             if final_ret > mejor_retorno:
                 mejor_retorno, mejor_ma, mejor_bt = final_ret, ma, bt
         
-        sl_val = float(mejor_bt['MA'].iloc[-1])
         p_act = float(mejor_bt['P'].iloc[-1])
+        sl_val = float(mejor_bt['MA'].iloc[-1])
         
         return {
             "ma_opt": mejor_ma, "retorno": (mejor_retorno - 1) * 100,
             "escudo": "✅ OK" if p_act > sl_val else "❌ ROTO",
-            "sl_ars": (sl_val * CCL_REF) / RATIOS[ticker]
+            "sl_ars": (sl_val * CCL_REF) / RATIOS[ticker],
+            "p_ars": (p_act * CCL_REF) / RATIOS[ticker]
         }
     except: return None
 
-# --- 3. LÓGICA DE TELEGRAM Y AUTOMATIZACIÓN ---
-def generar_ranking_msg():
+# --- 3. LÓGICA DE TELEGRAM CON FILTRO DE USUARIO ---
+@bot.message_handler(func=lambda message: message.from_user.id != CHAT_ID_AUTORIZADO)
+def rechazar_acceso(message):
+    bot.reply_to(message, "🚫 Acceso denegado. Este sistema es privado.")
+    bot.send_message(CHAT_ID_AUTORIZADO, f"⚠️ Intento de acceso no autorizado de ID: {message.from_user.id}")
+
+@bot.message_handler(commands=['radar'])
+def telegram_radar(message):
+    bot.send_message(CHAT_ID_AUTORIZADO, "🧠 Ejecutando escaneo para el Ranking Top 10...")
     res_list = []
     for t in RATIOS.keys():
         r = buscar_punto_perfecto(t)
         if r: res_list.append({**r, "t": t})
     
     res_list = sorted(res_list, key=lambda x: x['retorno'], reverse=True)
-    msg = "🏆 *RANKING TOP 10 SEMANAL*\n\n"
+    msg = "🏆 *RANKING TOP 10 - PUNTOS PERFECTOS*\n\n"
     for i, r in enumerate(res_list[:10], 1):
         msg += f"{i}. *{r['t']}* (MA{r['ma_opt']}): {r['escudo']}\n"
-        msg += f"💰 Ret: {r['retorno']:.1f}% | 🛡️ SL: ${r['sl_ars']:,.0f}\n"
+        msg += f"💰 Retorno: {r['retorno']:.1f}% | 🛡️ SL: ${r['sl_ars']:,.0f}\n"
         msg += "--------------------------\n"
-    return msg
+    bot.send_message(CHAT_ID_AUTORIZADO, msg, parse_mode="Markdown")
 
-@bot.message_handler(commands=['radar'])
-def radar_manual(message):
-    bot.send_message(CHAT_ID, "🧠 *SIIA v42.1*: Ejecutando optimización exhaustiva...")
-    bot.send_message(CHAT_ID, generar_ranking_msg(), parse_mode="Markdown")
+# --- 4. INTERFAZ STREAMLIT CON CLAVE ---
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.title("🔒 Acceso Restringido")
+        pw = st.text_input("Ingrese la clave del Sistema SIIA", type="password")
+        if st.button("Entrar"):
+            if pw == CLAVE_WEB:
+                st.session_state["password_correct"] = True
+                st.rerun()
+            else:
+                st.error("Clave incorrecta")
+        return False
+    return True
 
-def tarea_programada():
-    msg = "📅 *REPORTE AUTOMÁTICO DE LUNES*\n" + generar_ranking_msg()
-    bot.send_message(CHAT_ID, msg, parse_mode="Markdown")
+if check_password():
+    st.set_page_config(page_title="SIIA v43.0 - Dashboard Privado", layout="wide")
+    st.title("🧠 SIIA-DEPREDADOR v43.0: Gestión Total")
 
-def run_scheduler():
-    schedule.every().monday.at("11:00").do(tarea_programada)
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+    if "threads_iniciados" not in st.session_state:
+        Thread(target=lambda: bot.polling(none_stop=True), daemon=True).start()
+        st.session_state.threads_iniciados = True
 
-# --- 4. INICIO DE HILOS Y STREAMLIT ---
-if "hilos_iniciados" not in st.session_state:
-    Thread(target=lambda: bot.polling(none_stop=True), daemon=True).start()
-    Thread(target=run_scheduler, daemon=True).start()
-    st.session_state.hilos_iniciados = True
-
-# --- 4. INTERFAZ STREAMLIT MEJORADA ---
-st.title("🧠 SIIA-DEPREDADOR v42.1: Gestión Total")
-
-# Sidebar para ajustar el Dólar si es necesario
-ccl_manual = st.sidebar.number_input("Dólar CCL IOL", value=1469)
-
-if st.button("🚀 ENCONTRAR PUNTOS PERFECTOS (DASHBOARD)"):
-    resultados = []
-    barra = st.progress(0)
-    status_text = st.empty() # Para ver qué activo está procesando
-    
-    for i, (t, r) in enumerate(RATIOS.items()):
-        status_text.text(f"Analizando {t}...")
-        res = buscar_punto_perfecto(t)
-        if res:
-            # Extraemos los datos del diccionario 'res' que devuelve tu función
-            resultados.append({
-                "Ticker": t,
-                "MA Perfecta": res['ma_opt'],
-                "Retorno Neto %": round(res['retorno'], 2),
-                "Escudo": res['escudo'],
-                "Stop Loss ARS": round(res['sl_ars'], 2)
-            })
-        barra.progress((i + 1) / len(RATIOS))
-    
-    status_text.text("✅ ¡Escaneo Completo!")
-    
-    # --- ESTO ES LO QUE MUESTRA LA TABLA ---
-    if resultados:
-        df_final = pd.DataFrame(resultados).sort_values("Retorno Neto %", ascending=False)
+    if st.button("🚀 ACTUALIZAR RANKING (37 ACTIVOS)"):
+        resultados = []
+        barra = st.progress(0)
+        status = st.empty()
         
-        # Usamos st.dataframe en lugar de st.table para que sea interactivo
-        st.subheader("📊 Ranking de Optimización Exhaustiva")
-        st.dataframe(df_final.style.applymap(
-            lambda x: 'color: green' if x == "✅ OK" else 'color: red' if x == "❌ ROTO" else '',
-            subset=['Escudo']
-        ), use_container_width=True)
+        for i, (t, r) in enumerate(RATIOS.items()):
+            status.text(f"Analizando {t}...")
+            res = buscar_punto_perfecto(t)
+            if res:
+                resultados.append({
+                    "Ticker": t, "MA Opt": res['ma_opt'], "Retorno %": round(res['retorno'], 2),
+                    "Escudo": res['escudo'], "Precio ARS": round(res['p_ars'], 2), 
+                    "Stop Loss ARS": round(res['sl_ars'], 2)
+                })
+            barra.progress((i + 1) / len(RATIOS))
         
-        st.success(f"Se analizaron 1.480 escenarios. Sincronizado con el bot {TOKEN.split(':')[0]}")
-    else:
-        st.error("No se pudieron obtener resultados. Revisá la conexión con Yahoo Finance.")
+        status.text("✅ Proceso completado.")
+        df = pd.DataFrame(resultados).sort_values("Retorno %", ascending=False)
+        st.dataframe(df, use_container_width=True)
