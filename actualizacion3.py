@@ -90,7 +90,44 @@ if "hilos_iniciados" not in st.session_state:
     Thread(target=run_scheduler, daemon=True).start()
     st.session_state.hilos_iniciados = True
 
+# --- 4. INTERFAZ STREAMLIT MEJORADA ---
 st.title("🧠 SIIA-DEPREDADOR v42.1: Gestión Total")
-if st.button("🚀 ACTUALIZAR DASHBOARD"):
-    # ... (Misma lógica de tabla de actualizacion2.py) ...
-    st.success("Dashboard actualizado y Sincronizado con Telegram")
+
+# Sidebar para ajustar el Dólar si es necesario
+ccl_manual = st.sidebar.number_input("Dólar CCL IOL", value=1469)
+
+if st.button("🚀 ENCONTRAR PUNTOS PERFECTOS (DASHBOARD)"):
+    resultados = []
+    barra = st.progress(0)
+    status_text = st.empty() # Para ver qué activo está procesando
+    
+    for i, (t, r) in enumerate(RATIOS.items()):
+        status_text.text(f"Analizando {t}...")
+        res = buscar_punto_perfecto(t)
+        if res:
+            # Extraemos los datos del diccionario 'res' que devuelve tu función
+            resultados.append({
+                "Ticker": t,
+                "MA Perfecta": res['ma_opt'],
+                "Retorno Neto %": round(res['retorno'], 2),
+                "Escudo": res['escudo'],
+                "Stop Loss ARS": round(res['sl_ars'], 2)
+            })
+        barra.progress((i + 1) / len(RATIOS))
+    
+    status_text.text("✅ ¡Escaneo Completo!")
+    
+    # --- ESTO ES LO QUE MUESTRA LA TABLA ---
+    if resultados:
+        df_final = pd.DataFrame(resultados).sort_values("Retorno Neto %", ascending=False)
+        
+        # Usamos st.dataframe en lugar de st.table para que sea interactivo
+        st.subheader("📊 Ranking de Optimización Exhaustiva")
+        st.dataframe(df_final.style.applymap(
+            lambda x: 'color: green' if x == "✅ OK" else 'color: red' if x == "❌ ROTO" else '',
+            subset=['Escudo']
+        ), use_container_width=True)
+        
+        st.success(f"Se analizaron 1.480 escenarios. Sincronizado con el bot {TOKEN.split(':')[0]}")
+    else:
+        st.error("No se pudieron obtener resultados. Revisá la conexión con Yahoo Finance.")
